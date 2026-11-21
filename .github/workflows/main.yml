@@ -83,7 +83,7 @@ jobs:
         with:
           name: KaranlikBataklik-Xbox-MSIX
           path: ${{ runner.temp }}\Out\KaranlikBataklik-Xbox.msix
-- name: Sign MSIX package
+     - name: Sign MSIX package
         shell: pwsh
         run: |
           $msixPath = "$env:RUNNER_TEMP\Out\KaranlikBataklik-Xbox.msix"
