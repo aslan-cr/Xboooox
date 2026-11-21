@@ -1,0 +1,87 @@
+name: Build Xbox MSIX
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, ana ]
+
+jobs:
+  build-msix:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Locate Windows SDK makeappx.exe
+        id: sdk
+        shell: pwsh
+        run: |
+          $sdkRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $makeappx = Get-ChildItem -Path $sdkRoot -Filter "makeappx.exe" -Recurse |
+            Where-Object { $_.FullName -like "*\x64\makeappx.exe" } |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $makeappx) { throw "makeappx.exe bulunamadi." }
+          echo "MAKEAPPX=$makeappx" >> $env:GITHUB_OUTPUT
+
+      - name: Prepare UWP Web Package
+        shell: pwsh
+        run: |
+          $pkgDir = "$env:RUNNER_TEMP\XboxPkg"
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+
+          $srcDir = Join-Path (Get-Location).Path "gozkirpma-xbox"
+          if (-not (Test-Path $srcDir)) {
+            $srcDir = (Get-Location).Path
+          }
+
+          Copy-Item -Path "$srcDir\*" -Destination $pkgDir -Recurse -Force
+
+          $manifest = @"
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap rescap">
+  <Identity Name="GozKirpma.KaranlikBataklik.Xbox"
+            Publisher="CN=AslanDev"
+            Version="1.0.0.0"
+            ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Karanlik Bataklik</DisplayName>
+    <PublisherDisplayName>AslanDev</PublisherDisplayName>
+    <Logo>index.html</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Capabilities>
+    <Capability Name="internetClient" />
+  </Capabilities>
+  <Applications>
+    <Application Id="App" StartPage="index.html">
+      <uap:VisualElements DisplayName="Karanlik Bataklik"
+                          Description="Karanlik Bataklik Xbox Surumu"
+                          BackgroundColor="#111111"
+                          Square150x150Logo="index.html"
+                          Square44x44Logo="index.html">
+        <uap:DefaultTile ShortName="Bataklik" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+</Package>
+"@
+          Set-Content -Path "$pkgDir\AppxManifest.xml" -Value $manifest -Encoding UTF8
+
+      - name: Pack MSIX
+        shell: pwsh
+        run: |
+          $pkgDir = "$env:RUNNER_TEMP\XboxPkg"
+          $outDir = "$env:RUNNER_TEMP\Out"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          & "${{ steps.sdk.outputs.MAKEAPPX }}" pack /d "$pkgDir" /p "$outDir\KaranlikBataklik-Xbox.msix" /nv
+
+      - name: Upload MSIX Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KaranlikBataklik-Xbox-MSIX
+          path: ${{ runner.temp }}\Out\KaranlikBataklik-Xbox.msix
