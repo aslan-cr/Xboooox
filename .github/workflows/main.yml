@@ -3,7 +3,7 @@ name: Build Xbox MSIX
 on:
   workflow_dispatch:
   push:
-    branches: [ main ana ]
+    branches: [ main, ana ]
 
 jobs:
   build-msix:
@@ -36,6 +36,14 @@ jobs:
 
           Copy-Item -Path "$srcDir\*" -Destination $pkgDir -Recurse -Force
 
+          $img = Get-ChildItem -Path $pkgDir -Include ".jpg",".jpeg","*.png" -Recurse | Select-Object -First 1
+          if ($img) {
+            Copy-Item -Path $img.FullName -Destination "$pkgDir\app-logo.jpg" -Force
+          } else {
+            $b64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
+            [IO.File]::WriteAllBytes("$pkgDir\app-logo.jpg", [Convert]::FromBase64String($b64))
+          }
+
           $manifestLines = @(
             '<?xml version="1.0" encoding="utf-8"?>'
             '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" IgnorableNamespaces="uap">'
@@ -43,7 +51,7 @@ jobs:
             '  <Properties>'
             '    <DisplayName>Karanlik Bataklik</DisplayName>'
             '    <PublisherDisplayName>AslanDev</PublisherDisplayName>'
-            '    <Logo>index.html</Logo>'
+            '    <Logo>app-logo.jpg</Logo>'
             '  </Properties>'
             '  <Dependencies>'
             '    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />'
@@ -53,7 +61,7 @@ jobs:
             '  </Capabilities>'
             '  <Applications>'
             '    <Application Id="App" StartPage="index.html">'
-            '      <uap:VisualElements DisplayName="Karanlik Bataklik" Description="Karanlik Bataklik Xbox Surumu" BackgroundColor="#111111" Square150x150Logo="index.html" Square44x44Logo="index.html">'
+            '      <uap:VisualElements DisplayName="Karanlik Bataklik" Description="Karanlik Bataklik Xbox Surumu" BackgroundColor="#111111" Square150x150Logo="app-logo.jpg" Square44x44Logo="app-logo.jpg">'
             '        <uap:DefaultTile ShortName="Bataklik" />'
             '      </uap:VisualElements>'
             '    </Application>'
