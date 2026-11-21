@@ -89,10 +89,17 @@ jobs:
             -FriendlyName "AslanDev Xbox Cert" `
             -CertStoreLocation "Cert:\CurrentUser\My"
 
-          $sig = Set-AuthenticodeSignature -FilePath $msixPath -Certificate $cert -HashAlgorithm SHA256
-          if ($sig.Status -ne "Valid") {
-            throw "Imzalama basarisiz: $($sig.StatusMessage)"
-          }
+          $pwd = ConvertTo-SecureString -String "DevPass123!" -Force -AsPlainText
+          $pfxPath = "$env:RUNNER_TEMP\dev-cert.pfx"
+          Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pwd | Out-Null
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
+            Where-Object { $_.FullName -like "*\x64\signtool.exe" } |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $signtool) { throw "signtool.exe bulunamadi." }
+
+          & "$signtool" sign /fd SHA256 /f $pfxPath /p "DevPass123!" "$msixPath"
 
       - name: Upload MSIX Artifact
         uses: actions/upload-artifact@v4
