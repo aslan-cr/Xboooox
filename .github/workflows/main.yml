@@ -86,6 +86,8 @@ jobs:
 - name: Sign MSIX package
         shell: pwsh
         run: |
+          $msixPath = "$env:RUNNER_TEMP\Out\KaranlikBataklik-Xbox.msix"
+
           $cert = New-SelfSignedCertificate `
             -Type Custom `
             -Subject "CN=KaranlikBataklikDev" `
@@ -101,4 +103,4 @@ jobs:
             Sort-Object FullName -Descending |
             Select-Object -First 1 -ExpandProperty FullName
 
-          & "$signtool" sign /fd SHA256 /f "dev-cert.pfx" /p "DevPass123!" "KaranlikBataklik-Xbox.msix"
+          & "$signtool" sign /fd SHA256 /f "dev-cert.pfx" /p "DevPass123!" "$msixPath"
