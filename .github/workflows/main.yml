@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-msix:
-      runs-on: windows-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
 
           Copy-Item -Path "$srcDir\*" -Destination $pkgDir -Recurse -Force
 
-          $img = Get-ChildItem -Path $pkgDir -Include ".jpg",".jpeg","*.png" -Recurse | Select-Object -First 1
+          $img = Get-ChildItem -Path $pkgDir -Include "*.jpg","*.jpeg","*.png" -Recurse | Select-Object -First 1
           if ($img) {
             Copy-Item -Path $img.FullName -Destination "$pkgDir\app-logo.jpg" -Force
           } else {
@@ -78,12 +78,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           & "${{ steps.sdk.outputs.MAKEAPPX }}" pack /d "$pkgDir" /p "$outDir\KaranlikBataklik-Xbox.msix" /nv
 
-      - name: Upload MSIX Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: KaranlikBataklik-Xbox-MSIX
-          path: ${{ runner.temp }}\Out\KaranlikBataklik-Xbox.msix
-     - name: Sign MSIX package
+      - name: Sign MSIX package
         shell: pwsh
         run: |
           $msixPath = "$env:RUNNER_TEMP\Out\KaranlikBataklik-Xbox.msix"
@@ -104,3 +99,10 @@ jobs:
             Select-Object -First 1 -ExpandProperty FullName
 
           & "$signtool" sign /fd SHA256 /f "dev-cert.pfx" /p "DevPass123!" "$msixPath"
+
+      - name: Upload MSIX Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KaranlikBataklik-Xbox-MSIX
+          path: ${{ runner.temp }}\Out\KaranlikBataklik-Xbox.msix
+          
