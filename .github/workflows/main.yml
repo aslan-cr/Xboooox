@@ -5,6 +5,10 @@ on:
   push:
     branches: [ main, ana ]
 
+env:
+  PUBLISHER: "CN=AslanDev"
+  PFX_PASS: "DevPass123!"
+
 jobs:
   build-msix:
     runs-on: windows-latest
@@ -12,98 +16,63 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Locate Windows SDK makeappx.exe
+      - name: Locate Windows SDK tools
         id: sdk
         shell: pwsh
         run: |
-          $sdkRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
-          $makeappx = Get-ChildItem -Path $sdkRoot -Filter "makeappx.exe" -Recurse |
-            Where-Object { $_.FullName -like "*\x64\makeappx.exe" } |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $makeappx) { throw "makeappx.exe bulunamadi." }
-          echo "MAKEAPPX=$makeappx" >> $env:GITHUB_OUTPUT
+          $root = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $make = Get-ChildItem $root -Recurse -Filter makeappx.exe | Where-Object { $_.FullName -like "*\x64\*" } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          $sign = Get-ChildItem $root -Recurse -Filter signtool.exe | Where-Object { $_.FullName -like "*\x64\*" } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $make -or -not $sign) { throw "makeappx veya signtool bulunamadi." }
+          "MAKEAPPX=$make" >> $env:GITHUB_OUTPUT
+          "SIGNTOOL=$sign" >> $env:GITHUB_OUTPUT
 
-      - name: Prepare UWP Web Package
+      - name: Stage package (Xbox only)
         shell: pwsh
         run: |
-          $pkgDir = "$env:RUNNER_TEMP\XboxPkg"
-          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
-
-          $srcDir = Join-Path (Get-Location).Path "gozkirpma-xbox"
-          if (-not (Test-Path $srcDir)) {
-            $srcDir = (Get-Location).Path
+          $src = Join-Path $PWD "gozkirpma-xbox"
+          $pkg = Join-Path $env:RUNNER_TEMP "XboxPkg"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          # server/ (Node), *.orig ve README paket disinda kalir
+          robocopy $src $pkg /E /XD server /XF *.orig README-XBOX.md | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy basarisiz: $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0
+          # Gerekli dosyalar var mi?
+          foreach ($f in "AppxManifest.xml","index.html","Assets\StoreLogo.png","Assets\Square150x150Logo.png","Assets\Square44x44Logo.png","Assets\Wide310x150Logo.png","Assets\SplashScreen.png") {
+            if (-not (Test-Path (Join-Path $pkg $f))) { throw "Eksik dosya: $f" }
           }
+          # Manifest Publisher'i sertifika konusuyla ayni olmali
+          [xml]$m = Get-Content (Join-Path $pkg "AppxManifest.xml")
+          if ($m.Package.Identity.Publisher -ne $env:PUBLISHER) { throw "Publisher uyusmuyor: $($m.Package.Identity.Publisher)" }
 
-          Copy-Item -Path "$srcDir\*" -Destination $pkgDir -Recurse -Force
-
-          $img = Get-ChildItem -Path $pkgDir -Include "*.jpg","*.jpeg","*.png" -Recurse | Select-Object -First 1
-          if ($img) {
-            Copy-Item -Path $img.FullName -Destination "$pkgDir\app-logo.jpg" -Force
-          } else {
-            $b64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
-            [IO.File]::WriteAllBytes("$pkgDir\app-logo.jpg", [Convert]::FromBase64String($b64))
-          }
-
-          $manifestLines = @(
-            '<?xml version="1.0" encoding="utf-8"?>'
-            '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" IgnorableNamespaces="uap">'
-            '  <Identity Name="GozKirpma.KaranlikBataklik.Xbox" Publisher="CN=AslanDev" Version="1.0.0.0" ProcessorArchitecture="x64" />'
-            '  <Properties>'
-            '    <DisplayName>Karanlik Bataklik</DisplayName>'
-            '    <PublisherDisplayName>AslanDev</PublisherDisplayName>'
-            '    <Logo>app-logo.jpg</Logo>'
-            '  </Properties>'
-            '  <Dependencies>'
-            '    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />'
-            '  </Dependencies>'
-            '  <Capabilities>'
-            '    <Capability Name="internetClient" />'
-            '  </Capabilities>'
-            '  <Applications>'
-            '    <Application Id="App" StartPage="index.html">'
-            '      <uap:VisualElements DisplayName="Karanlik Bataklik" Description="Karanlik Bataklik Xbox Surumu" BackgroundColor="#111111" Square150x150Logo="app-logo.jpg" Square44x44Logo="app-logo.jpg">'
-            '        <uap:DefaultTile ShortName="Bataklik" />'
-            '      </uap:VisualElements>'
-            '    </Application>'
-            '  </Applications>'
-            '</Package>'
-          )
-          $manifestLines -join "`r`n" | Set-Content -Path "$pkgDir\AppxManifest.xml" -Encoding UTF8
-
-      - name: Pack MSIX
+      - name: Pack MSIX (dogrulama acik)
         shell: pwsh
         run: |
-          $pkgDir = "$env:RUNNER_TEMP\XboxPkg"
-          $outDir = "$env:RUNNER_TEMP\Out"
-          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          & "${{ steps.sdk.outputs.MAKEAPPX }}" pack /d "$pkgDir" /p "$outDir\KaranlikBataklik-Xbox.msix" /nv
+          $out = Join-Path $env:RUNNER_TEMP "Out"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & "${{ steps.sdk.outputs.MAKEAPPX }}" pack /d (Join-Path $env:RUNNER_TEMP "XboxPkg") /p "$out\KaranlikBataklik-Xbox.msix" /o
+          if ($LASTEXITCODE -ne 0) { throw "makeappx basarisiz" }
 
-      - name: Sign MSIX package
+      - name: Create certificate and sign
         shell: pwsh
         run: |
-          $msixPath = "$env:RUNNER_TEMP\Out\KaranlikBataklik-Xbox.msix"
+          $out = Join-Path $env:RUNNER_TEMP "Out"
+          $cert = New-SelfSignedCertificate -Type Custom -Subject $env:PUBLISHER `
+            -KeyUsage DigitalSignature -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 `
+            -FriendlyName "KaranlikBataklik Xbox Dev" -CertStoreLocation "Cert:\CurrentUser\My" `
+            -NotAfter (Get-Date).AddYears(3) `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          $pw = ConvertTo-SecureString $env:PFX_PASS -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath "$out\dev-cert.pfx" -Password $pw | Out-Null
+          Export-Certificate -Cert $cert -FilePath "$out\KaranlikBataklik-Xbox.cer" | Out-Null
+          & "${{ steps.sdk.outputs.SIGNTOOL }}" sign /fd SHA256 /f "$out\dev-cert.pfx" /p $env:PFX_PASS "$out\KaranlikBataklik-Xbox.msix"
+          if ($LASTEXITCODE -ne 0) { throw "signtool basarisiz" }
+          Remove-Item "$out\dev-cert.pfx"
 
-          $cert = New-SelfSignedCertificate `
-            -Type CodeSigningCert `
-            -Subject "CN=AslanDev" `
-            -FriendlyName "AslanDev Xbox Cert" `
-            -CertStoreLocation "Cert:\CurrentUser\My"
-
-          $pwd = ConvertTo-SecureString -String "DevPass123!" -Force -AsPlainText
-          $pfxPath = "$env:RUNNER_TEMP\dev-cert.pfx"
-          Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pwd | Out-Null
-
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
-            Where-Object { $_.FullName -like "*\x64\signtool.exe" } |
-            Select-Object -First 1 -ExpandProperty FullName
-
-          if (-not $signtool) { throw "signtool.exe bulunamadi." }
-
-          & "$signtool" sign /fd SHA256 /f $pfxPath /p "DevPass123!" "$msixPath"
-
-      - name: Upload MSIX Artifact
+      - name: Upload MSIX and certificate
         uses: actions/upload-artifact@v4
         with:
           name: KaranlikBataklik-Xbox-MSIX
-          path: ${{ runner.temp }}\Out\KaranlikBataklik-Xbox.msix
-          
+          path: |
+            ${{ runner.temp }}\Out\KaranlikBataklik-Xbox.msix
+            ${{ runner.temp }}\Out\KaranlikBataklik-Xbox.cer
